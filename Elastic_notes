@@ -1,0 +1,3 @@
+atrinuted where we required exact match , we can put index not analyzed .
+diffence in put and post is that we don't required id while loading data into elastic search 
+Term can be use to filter it out data for any spefic feild ex:- identify the product whose value is more than 20 .
