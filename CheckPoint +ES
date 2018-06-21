@@ -1,0 +1,87 @@
+package main.scala
+
+import org.apache.spark.sql.SQLContext
+import org.apache.kafka.common.serialization.StringDeserializer
+import org.apache.spark._
+import org.apache.spark.streaming._
+import org.apache.spark.streaming.kafka010._
+import org.apache.spark.streaming.kafka010.LocationStrategies.PreferConsistent
+import org.apache.spark.streaming.kafka010.ConsumerStrategies.Subscribe
+import org.apache.spark.SparkConf
+import org.apache.spark.SparkContext._   
+import org.apache.spark.streaming.StreamingContext
+import org.apache.spark.streaming.StreamingContext._
+import org.apache.spark.streaming._
+import org.elasticsearch.spark.streaming.EsSparkStreaming 
+import org.elasticsearch.spark.sql._
+import scala.collection._
+import org.json4s._
+
+
+
+
+object myElasticSearch extends App  {
+
+val conf = new SparkConf().setMaster("local[*]").setAppName("Spark-Write-ElasticSearch")
+
+     conf.set("es.index.auto.create", "true")
+     conf.set("es.index.auto.create", "true")
+      conf.set("es.http.timeout", "5m")
+      conf.set("es.nodes", "localhost")
+      conf.set("es.port", "9205")
+      conf.set("es.nodes.wan.only", "true")
+
+val sc = new SparkContext(conf)
+
+val checkpointDir = "_checkpoint"
+
+
+  val kafkaParams = Map[String, Object](
+    "bootstrap.servers" -> "localhost:9092",
+    "key.deserializer" -> classOf[StringDeserializer],
+    "value.deserializer" -> classOf[StringDeserializer],
+    "group.id" -> "spark-playground-group",
+    "auto.offset.reset" -> "latest",
+    "enable.auto.commit" -> (false: java.lang.Boolean)
+  )
+
+var offsetRanges = Array[OffsetRange]()
+
+
+val ssc = StreamingContext.getOrCreate(checkpointDir, createSC)
+
+ssc.start()
+ssc.awaitTermination()
+
+
+def createSC(): StreamingContext = {
+  val ssc = new StreamingContext(sc, batchDuration = Seconds(5))
+
+  val inputStream = KafkaUtils.createDirectStream(ssc, PreferConsistent, Subscribe[String, String](Array("topic_name"), kafkaParams))
+
+
+inputStream.transform { rdd =>
+      offsetRanges = rdd.asInstanceOf[HasOffsetRanges].offsetRanges
+      rdd
+    }.foreachRDD { rdd =>
+
+      //If data is present, continue
+      if (rdd.count() > 0) {
+
+val sqlContext = SQLContext.getOrCreate(SparkContext.getOrCreate())
+         //Parse JSON as DataFrame
+        val saleEvents = sqlContext.read.json( rdd.map(x=>x.value()) )
+
+      //Save to Elasticsearch
+        saleEvents.saveToEs("index\type")
+
+      }
+
+ }
+
+  ssc.checkpoint(checkpointDir)
+  ssc
+}
+
+}
+
